@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import nmap
 import datetime
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 # 1. Database Configuration
@@ -26,10 +26,12 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # In development, this ensures no blocks
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 class ScanRequest(BaseModel):
     target: str
@@ -40,7 +42,9 @@ async def run_scan(request: ScanRequest):
     try:
         # 1. Initialize Nmap (Homebrew Path)
         # Note: Ensure nmap is installed via 'brew install nmap'
-        nm = nmap.PortScanner(nmap_search_path=('/opt/homebrew/bin/nmap',))
+        # 1. Initialize Nmap (Universal Path for Docker & Mac)
+        # This checks the Docker path first, then the Mac Homebrew path
+        nm = nmap.PortScanner(nmap_search_path=('/usr/bin/nmap', '/opt/homebrew/bin/nmap'))
         
         # 2. Run Scan (Clean the target string)
         target_ip = request.target.strip()
@@ -100,3 +104,6 @@ async def clear_all_scans():
         return {"message": "All history cleared"}
     finally:
         db.close()
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
