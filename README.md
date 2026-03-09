@@ -1,6 +1,6 @@
-# 🚀 Finance Sentinel: Full-Stack Financial Diagnostics
+# 🛡️ Sentinel: Advanced Diagnostics Engine
 
-A high-performance financial dashboard built to process raw bank statements and provide real-time spending analytics. 
+A high-performance system built to process raw data streams and provide real-time diagnostic analytics.
 
 ## 🛠️ The Tech Stack
 * **Frontend:** React.js, Tailwind CSS, Lucide-React
