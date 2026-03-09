@@ -1,173 +1,179 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
+import { Upload, Activity, Shield, Cpu, TrendingUp, CheckCircle, FileText, Zap } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
+import axios from 'axios';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 function App() {
-  const [target, setTarget] = useState('');
-  const [results, setResults] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [data, setData] = useState([
+    { name: 'Node-01', amount: 45 },
+    { name: 'Node-02', amount: 82 },
+    { name: 'Node-03', amount: 35 },
+  ]);
+  const [integrityScore, setIntegrityScore] = useState(4300);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
-  const fetchHistory = async () => {
-    try {
-      const response = await fetch('http://localhost:8000/scans');
-      const data = await response.json();
-      setHistory(data);
-    } catch (err) { 
-      console.error("History offline"); 
-    }
-  };
+  // Constants for Diagnostic Thresholds
+  const WARNING_THRESHOLD = 1500;
 
-  const deleteScan = async (id, e) => {
-    e.stopPropagation();
-    try {
-      const res = await fetch(`http://localhost:8000/scans/${id}`, { method: 'DELETE' });
-      if (res.ok) fetchHistory(); 
-    } catch (err) {
-      console.error("Failed to delete scan", err);
-    }
-  };
+  const handleUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
 
-  const clearAllScans = async () => {
-    if (!window.confirm("Are you sure you want to delete ALL scan history?")) return;
-    try {
-      const res = await fetch('http://localhost:8000/scans', { method: 'DELETE' });
-      if (res.ok) fetchHistory();
-    } catch (err) {
-      console.error("Failed to clear history", err);
-    }
-  };
-
-  const runDiscovery = async () => {
-    setLoading(true);
-    setError(null);
-    const cleanTarget = target.trim();
-    if (!cleanTarget) {
-      setError("Please enter a target IP address.");
-      setLoading(false);
-      return;
-    }
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
 
     try {
-      const res = await fetch('http://localhost:8000/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: cleanTarget }),
-      });
-      if (!res.ok) {
-        const errorDetail = await res.json();
-        throw new Error(errorDetail.detail?.[0]?.msg || "Validation Error");
+      const response = await axios.post('http://127.0.0.1:8000/upload', formData);
+      if (response.data.status === "success") {
+        setData(response.data.chart_data);
+        setIntegrityScore(response.data.total_balance);
+      } else {
+        alert(response.data.message);
       }
-      const data = await res.json();
-      setResults(data);
-      fetchHistory(); 
-    } catch (err) {
-      setError(err.message);
+    } catch (error) {
+      console.error("Connection Error:", error);
+      alert("Diagnostic Backend Offline. Ensure main.py is active.");
     } finally {
-      setLoading(false);
+      setUploading(false);
+      event.target.value = null; 
     }
   };
 
-  useEffect(() => { fetchHistory(); }, []);
+  const generatePDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(22);
+    doc.setTextColor(16, 185, 129); 
+    doc.text("Sentinel: Advanced Diagnostic Report", 20, 20);
+    
+    doc.setFontSize(12);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`System Integrity Value: ${integrityScore.toLocaleString()}`, 20, 32);
+    doc.text(`Analysis Timestamp: ${new Date().toLocaleString()}`, 20, 39);
+
+    const tableRows = data.map(item => [item.name, item.amount.toFixed(2)]);
+    autoTable(doc, {
+      startY: 50,
+      head: [['Data Node', 'Diagnostic Value']],
+      body: tableRows,
+      theme: 'grid',
+      headStyles: { fillColor: [16, 185, 129], fontStyle: 'bold' },
+      styles: { cellPadding: 5, fontSize: 10 }
+    });
+
+    doc.save(`Sentinel_Analysis_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
 
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-200">
-      {/* Sidebar */}
-      <div className="w-72 bg-slate-900 border-r border-slate-800 p-6 overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest">History</h2>
-          {history.length > 0 && (
-            <button onClick={clearAllScans} className="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase tracking-tighter transition-colors">
-              Clear All
-            </button>
-          )}
-        </div>
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-8 font-sans">
+      <div className="max-w-6xl mx-auto">
         
-        <div className="space-y-2">
-          {history.map((s) => (
-            <div key={s.id} className="relative group">
-              <button 
-                onClick={() => setResults({target: s.target, summary: s.result_data})}
-                className="w-full text-left p-3 rounded bg-slate-950 border border-slate-800 hover:border-blue-500 transition-all pr-10"
-              >
-                <div className="flex justify-between items-start">
-                  <div className="text-sm font-bold text-blue-400 truncate">{s.target}</div>
-                  <div className="flex gap-2 items-center">
-                    {/* Status Badge */}
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                    </span>
-                    <span className="text-[9px] bg-blue-900/30 text-blue-300 px-1.5 py-0.5 rounded border border-blue-800/50">
-                      {s.port_count || 0} Ports
-                    </span>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-600 mt-1">{new Date(s.scan_time).toLocaleTimeString()}</div>
-              </button>
-              <button onClick={(e) => deleteScan(s.id, e)} className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-400 p-2 transition-opacity">
-                ✕
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Main Area */}
-      <div className="flex-1 p-8">
-        <div className="max-w-4xl mx-auto">
-          <h1 className="text-4xl font-black mb-8">SENTINEL <span className="text-blue-500">v1.0</span></h1>
+        {/* Header Section */}
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+              <Shield className="text-emerald-400 w-8 h-8" /> Sentinel Diagnostics
+            </h1>
+            <p className="text-slate-400 mt-1">Full-Stack Data Analysis & Integrity Engine</p>
+          </div>
           
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl mb-8 flex gap-4">
-            <input 
-              type="text" 
-              value={target} 
-              onChange={(e) => setTarget(e.target.value)}
-              placeholder="127.0.0.1" 
-              className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500" 
-            />
+          <div className="flex items-center gap-4">
             <button 
-              onClick={runDiscovery} 
-              disabled={loading || !target}
-              className="bg-blue-600 px-8 py-3 rounded-lg font-bold hover:bg-blue-500 disabled:opacity-50 transition-colors"
+              onClick={generatePDF}
+              className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-slate-200 px-5 py-2.5 rounded-xl border border-slate-800 transition-all active:scale-95 shadow-lg"
             >
-              {loading ? 'SCANNING...' : 'RUN DISCOVERY'}
+              <FileText className="w-4 h-4 text-emerald-400" /> Generate Report
             </button>
+
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center gap-3 shadow-2xl min-w-[200px]">
+              <Zap className="text-emerald-400" />
+              <span className="text-2xl font-mono font-bold text-emerald-400">
+                {integrityScore.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </header>
+
+        {/* System Status Ribbon */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
+          <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl flex items-center gap-4">
+            <Activity className="text-emerald-500 w-5 h-5" />
+            <div>
+              <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">Engine Status</p>
+              <p className="text-sm font-semibold">Active / Monitoring</p>
+            </div>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl flex items-center gap-4">
+            <Cpu className="text-blue-400 w-5 h-5" />
+            <div>
+              <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">Process Logic</p>
+              <p className="text-sm font-semibold">Pandas v3.1 Engine</p>
+            </div>
+          </div>
+          <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl flex items-center gap-4">
+            <TrendingUp className="text-purple-400 w-5 h-5" />
+            <div>
+              <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">Data Integrity</p>
+              <p className="text-sm font-semibold">99.8% Optimized</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Dashboard Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          
+          {/* Upload Card */}
+          <div 
+            onClick={() => fileInputRef.current.click()}
+            className={`bg-slate-900 border-2 border-dashed rounded-3xl p-12 flex flex-col items-center justify-center transition-all cursor-pointer group ${uploading ? 'border-emerald-500 animate-pulse' : 'border-slate-800 hover:border-emerald-500/50 hover:bg-slate-900/50'}`}
+          >
+            <input type="file" ref={fileInputRef} onChange={handleUpload} className="hidden" accept=".csv" />
+            <div className="bg-slate-800 p-6 rounded-2xl mb-4 group-hover:scale-110 transition-transform shadow-inner">
+              {uploading ? <Activity className="w-10 h-10 text-emerald-400 animate-spin" /> : <Upload className="w-10 h-10 text-emerald-400" />}
+            </div>
+            <h3 className="text-xl font-semibold mb-2">{uploading ? 'Analyzing Stream...' : 'Import Dataset'}</h3>
+            <p className="text-slate-500 text-center text-sm max-w-xs">Drop your .csv logs here to trigger the Python diagnostic pipeline.</p>
           </div>
 
-          {error && <div className="p-4 mb-8 bg-red-900/20 border border-red-900 text-red-400 rounded-lg font-medium">⚠️ {error}</div>}
+          {/* Visualization Card */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 h-auto shadow-2xl relative overflow-hidden">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Activity className="w-5 h-5 text-emerald-400" /> Metric Distribution
+              </h3>
+              <span className="text-xs font-mono text-slate-500 uppercase tracking-widest">Real-Time</span>
+            </div>
+            
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data}>
+                  <XAxis dataKey="name" stroke="#475569" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#475569" fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip 
+                    cursor={{fill: '#1e293b', radius: 4}} 
+                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }} 
+                  />
+                  <ReferenceLine y={WARNING_THRESHOLD} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'right', value: 'Threshold', fill: '#ef4444', fontSize: 10 }} />
+                  <Bar dataKey="amount" radius={[8, 8, 0, 0]} barSize={40}>
+                    {data.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.amount > WARNING_THRESHOLD ? '#ef4444' : '#10b981'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="mt-4 text-xs text-slate-500 italic">
+              * Bars automatically flag Red when data metrics exceed the defined safety threshold.
+            </p>
+          </div>
 
-          {/* Loading State Overlay */}
-          {loading ? (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-12 flex flex-col items-center justify-center space-y-4 shadow-2xl">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-              <p className="text-slate-400 font-mono text-sm animate-pulse text-center">
-                Scanning target {target}...<br/>
-                <span className="text-[10px] text-slate-600 uppercase tracking-widest">Executing Nmap Sequence</span>
-              </p>
-            </div>
-          ) : results && (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl animate-in fade-in duration-500">
-              <div className="p-4 bg-slate-800/50 border-b border-slate-800 font-bold text-blue-400">Target: {results.target}</div>
-              <table className="w-full text-left">
-                <thead className="bg-slate-950 text-[10px] text-slate-500 uppercase tracking-wider">
-                  <tr><th className="p-4">Port</th><th className="p-4">Service</th><th className="p-4">Status</th></tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {results.summary?.tcp ? Object.entries(results.summary.tcp).map(([port, info]) => (
-                    <tr key={port} className="hover:bg-blue-500/5 transition-colors">
-                      <td className="p-4 font-mono text-blue-400">{port}</td>
-                      <td className="p-4">{info.name}</td>
-                      <td className="p-4"><span className="px-2 py-1 rounded-full bg-emerald-900/30 text-emerald-400 text-xs font-bold uppercase">{info.state}</span></td>
-                    </tr>
-                  )) : <tr><td colSpan="3" className="p-8 text-center text-slate-500 italic">No open ports found.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-export default App;          
+export default App;
