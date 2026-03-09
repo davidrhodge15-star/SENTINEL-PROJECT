@@ -1,0 +1,4 @@
+sentinel.db
+__pycache__/
+*.pyc
+venv/
